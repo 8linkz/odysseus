@@ -8,6 +8,7 @@ the LLM at both the planning and query-generation steps, without needing a live
 LLM or DB.
 """
 import asyncio
+import time
 from datetime import datetime
 
 from src.deep_research import (
@@ -47,6 +48,31 @@ def test_generate_queries_prompt_carries_the_current_year():
     assert queries  # sanity: the JSON array parsed
     # The fix: the real current year is in the prompt the LLM actually sees.
     assert _this_year() in seen["prompt"]
+
+
+def test_generate_queries_falls_back_to_question_when_local_llm_times_out():
+    r = DeepResearcher.__new__(DeepResearcher)
+    r.research_plan = ""
+    r.queries_used = set()
+    r._emit = lambda **kwargs: None
+
+    async def _failing_llm(messages, **kwargs):
+        raise TimeoutError("local model timed out")
+
+    r._llm = _failing_llm
+
+    queries = asyncio.run(r._generate_queries("Ollama qwen local deep research", "", 1))
+
+    assert queries == ["Ollama qwen local deep research"]
+    assert "Ollama qwen local deep research" in r.queries_used
+
+
+def test_time_limit_zero_disables_deep_research_internal_cap():
+    r = DeepResearcher.__new__(DeepResearcher)
+    r.max_time = 0
+    r._start_time = time.time() - 999999
+
+    assert r._time_exceeded() is False
 
 
 def test_plan_prompt_carries_the_current_year():

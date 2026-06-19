@@ -492,14 +492,35 @@ class DeepResearcher:
             )
             queries = self._parse_json_array(response)
             # Deduplicate
-            new_queries = [q for q in queries if q not in self.queries_used]
+            new_queries = []
+            for query in queries:
+                clean_query = " ".join(str(query or "").split())
+                if clean_query and clean_query not in self.queries_used:
+                    new_queries.append(clean_query)
+            if not new_queries:
+                return self._fallback_queries(question, round_num, "empty LLM query list")
             self.queries_used.update(new_queries)
             logger.info(f"Round {round_num} queries: {new_queries}")
             return new_queries
         except Exception as e:
             logger.error(f"Query generation failed: {e}")
             self._emit(phase="warning", message=f"Query generation failed: {e}")
+            return self._fallback_queries(question, round_num, str(e))
+
+    def _fallback_queries(self, question: str, round_num: int, reason: str) -> List[str]:
+        """Use the original question as a last-resort search query.
+
+        Local LLMs can time out or emit non-JSON during the lightweight query
+        planning step. Search itself may still be healthy, so avoid ending the
+        whole run before the first provider call.
+        """
+        fallback = " ".join(str(question or "").split())
+        if not fallback or fallback in self.queries_used:
             return []
+        self.queries_used.add(fallback)
+        logger.warning(f"Round {round_num}: using fallback query after query generation failed: {reason}")
+        self._emit(phase="warning", message="Query generation failed; searching the original question instead.")
+        return [fallback]
 
     # ------------------------------------------------------------------
     # SEARCH + EXTRACT
@@ -794,6 +815,8 @@ class DeepResearcher:
                 pass
 
     def _time_exceeded(self) -> bool:
+        if self.max_time is None or self.max_time <= 0:
+            return False
         return (time.time() - self._start_time) > self.max_time
 
     # _strip_think_tags removed — use research_utils.strip_thinking()

@@ -109,6 +109,17 @@ def _resolve_endpoint_runtime(ep, owner=None, model: Optional[str] = None):
     return build_chat_url(base), ep_model, build_headers(api_key, base)
 
 
+def _default_research_max_time() -> int:
+    from src.settings import get_setting
+    try:
+        raw_timeout = int(get_setting("research_run_timeout_seconds", 1800))
+    except (TypeError, ValueError):
+        raw_timeout = 1800
+    if raw_timeout <= 0:
+        return 0
+    return min(86400, max(60, raw_timeout))
+
+
 def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     router = APIRouter(tags=["research"])
 
@@ -377,7 +388,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         search_provider: Optional[str] = None
         endpoint_id: Optional[str] = None
         model: Optional[str] = None
-        max_time: int = Field(default=300, ge=60, le=1800)
+        max_time: Optional[int] = Field(default=None, ge=0, le=86400)
         extraction_timeout: Optional[int] = Field(default=None, ge=15, le=3600)
         extraction_concurrency: Optional[int] = Field(default=None, ge=1, le=12)
         category: Optional[str] = None
@@ -458,7 +469,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             query=body.query,
             llm_endpoint=ep_url,
             llm_model=ep_model,
-            max_time=body.max_time,
+            max_time=body.max_time if body.max_time is not None else _default_research_max_time(),
             llm_headers=ep_headers,
             max_rounds=effective_max_rounds,
             search_provider=body.search_provider or None,
