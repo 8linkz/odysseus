@@ -39,6 +39,7 @@ def test_generate_queries_prompt_carries_the_current_year():
 
     async def _fake_llm(messages, **kwargs):
         seen["prompt"] = messages[0]["content"]
+        seen["kwargs"] = kwargs
         return '["python tutorials", "python guides"]'
 
     r._llm = _fake_llm
@@ -48,6 +49,7 @@ def test_generate_queries_prompt_carries_the_current_year():
     assert queries  # sanity: the JSON array parsed
     # The fix: the real current year is in the prompt the LLM actually sees.
     assert _this_year() in seen["prompt"]
+    assert seen["kwargs"]["max_retries"] == 1
 
 
 def test_generate_queries_falls_back_to_question_when_local_llm_times_out():

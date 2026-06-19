@@ -379,9 +379,13 @@ class DeepResearcher:
     # LLM helper
     # ------------------------------------------------------------------
     async def _llm(self, messages: List[Dict], temperature: float = 0.3,
-                   max_tokens: int = 4096, timeout: int = 60) -> str:
+                   max_tokens: int = 4096, timeout: int = 60,
+                   max_retries: Optional[int] = None) -> str:
         """Call the LLM asynchronously and strip thinking tags."""
         from src.llm_core import llm_call_async
+        kwargs = {}
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
         response = await llm_call_async(
             url=self.llm_endpoint,
             model=self.llm_model,
@@ -390,6 +394,7 @@ class DeepResearcher:
             max_tokens=max_tokens,
             headers=self.llm_headers,
             timeout=timeout,
+            **kwargs,
         )
         return strip_thinking(response)
 
@@ -489,6 +494,7 @@ class DeepResearcher:
                 temperature=0.5,
                 max_tokens=4096,
                 timeout=getattr(self, "query_timeout", 120),
+                max_retries=1,
             )
             queries = self._parse_json_array(response)
             # Deduplicate
