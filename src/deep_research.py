@@ -668,6 +668,7 @@ class DeepResearcher:
                 temperature=0.2,
                 max_tokens=2048,
                 timeout=self.extraction_timeout,
+                max_retries=1,
             )
             parsed = self._parse_json_object(response)
             if parsed:

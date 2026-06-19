@@ -8,7 +8,10 @@ the LLM at both the planning and query-generation steps, without needing a live
 LLM or DB.
 """
 import asyncio
+import json
+import sys
 import time
+import types
 from datetime import datetime
 
 from src.deep_research import (
@@ -75,6 +78,49 @@ def test_time_limit_zero_disables_deep_research_internal_cap():
     r._start_time = time.time() - 999999
 
     assert r._time_exceeded() is False
+
+
+def test_fetch_and_extract_uses_single_retry_for_local_llm_timeouts(monkeypatch):
+    search_mod = types.ModuleType("src.search")
+
+    def fake_fetch_webpage_content(url, timeout):
+        return {
+            "success": True,
+            "content": "useful page content",
+            "title": "Page",
+            "og_image": "",
+        }
+
+    search_mod.fetch_webpage_content = fake_fetch_webpage_content
+    monkeypatch.setitem(sys.modules, "src.search", search_mod)
+
+    async def immediate_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", immediate_to_thread)
+
+    r = DeepResearcher(
+        llm_endpoint="http://local.test/v1/chat/completions",
+        llm_model="local-model",
+        extraction_timeout=123,
+    )
+    seen = {}
+
+    async def _fake_llm(messages, **kwargs):
+        seen.update(kwargs)
+        return json.dumps({
+            "rational": "relevant",
+            "evidence": "evidence",
+            "summary": "useful page content",
+        })
+
+    r._llm = _fake_llm
+
+    result = asyncio.run(r._fetch_and_extract("https://example.test", "question", "Title"))
+
+    assert result["summary"] == "useful page content"
+    assert seen["timeout"] == 123
+    assert seen["max_retries"] == 1
 
 
 def test_plan_prompt_carries_the_current_year():
