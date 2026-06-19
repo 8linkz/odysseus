@@ -17,6 +17,7 @@ from typing import Optional, Dict
 
 from src.research_utils import strip_thinking, is_low_quality
 from src.constants import DEEP_RESEARCH_DIR
+from src.settings import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -720,6 +721,12 @@ class ResearchHandler:
     async def _probe_endpoint(endpoint: str, model: str, headers: dict = None):
         """Quick probe to verify the LLM endpoint/model responds before research."""
         from src.llm_core import llm_call_async
+        probe_timeout = _bounded_int(
+            get_setting("research_planning_timeout_seconds", 90),
+            default=90,
+            minimum=15,
+            maximum=3600,
+        )
         try:
             logger.info(f"Probing {model} at {endpoint} (has_auth={bool(headers and 'Authorization' in (headers or {}))})")
             await llm_call_async(
@@ -729,7 +736,7 @@ class ResearchHandler:
                 temperature=0,
                 max_tokens=5,
                 headers=headers,
-                timeout=15,
+                timeout=probe_timeout,
                 max_retries=1,
             )
             logger.info(f"Endpoint probe OK: {model}")

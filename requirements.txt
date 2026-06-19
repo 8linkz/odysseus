@@ -35,6 +35,10 @@ python-dateutil
 # fetch across Radicale, Nextcloud, Apple, Fastmail; we'd be reinventing
 # the protocol without it.
 caldav
+# Content-based MIME detection for uploads (src/upload_handler.py). Needs the
+# system libmagic1 library (installed in the Dockerfile); without either, the
+# handler falls back to extension-only detection.
+python-magic
 cryptography
 bcrypt
 mcp

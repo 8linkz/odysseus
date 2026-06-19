@@ -8,6 +8,8 @@ FROM python:3.14-slim
 # nodejs/npm provide npx for the optional built-in Browser MCP server.
 # gosu lets the entrypoint drop privileges cleanly so signals still reach
 # uvicorn directly (no extra shell layer like `su`/`sudo` would add).
+# libmagic1 backs python-magic for content-based MIME detection on uploads;
+# without it upload_handler falls back to extension-only guessing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -18,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     openssh-client \
     gosu \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI (client only — daemon stays on the host via the
@@ -45,6 +48,32 @@ ARG INSTALL_OPTIONAL=false
 COPY requirements.txt requirements-optional.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INSTALL_OPTIONAL" = "true" ]; then pip install --no-cache-dir -r requirements-optional.txt; fi
+
+# Bake the built-in Browser MCP (Playwright) into the image so browser-
+# automation tools work out of the box and survive a container recreate. On by
+# default; set --build-arg INSTALL_BROWSER=false to skip and keep the image
+# lean (chromium + system libs add several hundred MB).
+#
+# Two things have to land where the *runtime* user (HOME=/app, dropped via
+# gosu) will look for them, or the server silently stays unavailable:
+#   - npm_config_cache=/app/.npm  -> builtin_mcp._npm_cache_roots() checks this
+#     env first, so the @playwright/mcp npx package cache is found at runtime.
+#   - PLAYWRIGHT_BROWSERS_PATH    -> shared by the build-time install and the
+#     runtime MCP process so the exact chromium revision is reused.
+# Chromium is installed via @playwright/mcp's *own* playwright dependency
+# (npx --package=...), not a standalone playwright@latest, so the browser
+# revision matches what the MCP launches — otherwise it re-downloads on first
+# use. Neither /app/.npm nor /app/.cache/ms-playwright is a bind mount (see
+# docker-compose.yml), so both survive a container recreate.
+ARG INSTALL_BROWSER=true
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright \
+    npm_config_cache=/app/.npm
+RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
+        HOME=/app npx -y @playwright/mcp@latest --version \
+        && HOME=/app npx -y --package=@playwright/mcp@latest -- playwright install --with-deps chromium \
+        && chmod -R a+rX /app/.npm /app/.cache/ms-playwright \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Copy app code
 COPY . .
